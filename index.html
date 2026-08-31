@@ -338,34 +338,58 @@ function animateConfetti() {
   }
 }
 
-/* ---------- เสียง (Web Audio API) ---------- */
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+/* ---------- เสียง (Web Audio API) — ปรับให้ทำงานถูกต้องบน iOS Safari ---------- */
+let audioCtx = null;
+
+function getAudioContext() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === "suspended") {
+    audioCtx.resume();
+  }
+  return audioCtx;
+}
+
+// ปลดล็อกเสียงตั้งแต่ผู้ใช้แตะหน้าจอ/คลิกครั้งแรก (จำเป็นสำหรับ iOS Safari)
+function unlockAudio() {
+  const ctxA = getAudioContext();
+  const buffer = ctxA.createBuffer(1, 1, 22050);
+  const source = ctxA.createBufferSource();
+  source.buffer = buffer;
+  source.connect(ctxA.destination);
+  source.start(0);
+}
+document.addEventListener("touchstart", unlockAudio, { once: true });
+document.addEventListener("click", unlockAudio, { once: true });
 
 function playTick() {
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
+  const ctxA = getAudioContext();
+  const osc = ctxA.createOscillator();
+  const gain = ctxA.createGain();
   osc.type = "square";
   osc.frequency.value = 800;
-  gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
+  gain.gain.setValueAtTime(0.15, ctxA.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctxA.currentTime + 0.05);
   osc.connect(gain);
-  gain.connect(audioCtx.destination);
+  gain.connect(ctxA.destination);
   osc.start();
-  osc.stop(audioCtx.currentTime + 0.05);
+  osc.stop(ctxA.currentTime + 0.05);
 }
 
 function playWinSound() {
+  const ctxA = getAudioContext();
   const notes = [523.25, 659.25, 783.99, 1046.5];
   notes.forEach((freq, i) => {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
+    const osc = ctxA.createOscillator();
+    const gain = ctxA.createGain();
     osc.type = "triangle";
     osc.frequency.value = freq;
-    const startTime = audioCtx.currentTime + i * 0.12;
+    const startTime = ctxA.currentTime + i * 0.12;
     gain.gain.setValueAtTime(0.2, startTime);
     gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.3);
     osc.connect(gain);
-    gain.connect(audioCtx.destination);
+    gain.connect(ctxA.destination);
     osc.start(startTime);
     osc.stop(startTime + 0.3);
   });
@@ -470,7 +494,7 @@ function removeMenu(index) {
 }
 
 function spinWheel() {
-  if (audioCtx.state === "suspended") audioCtx.resume();
+  getAudioContext();
 
   spinBtn.disabled = true;
   const resultEl = document.getElementById("result");
@@ -485,7 +509,7 @@ function spinWheel() {
   // มุมเป้าหมายที่ต้องการให้ "ชิ้นนี้" ไปอยู่ตรงลูกศร (mod 360)
   const desiredFinalAngle = ((270 - (randomIndex * sliceAngle + sliceAngle / 2)) % 360 + 360) % 360;
 
-  // มุมปัจจุบันของวงล้อ (mod 360) — สำคัญมาก ป้องกันบั๊กสะสมมุมข้ามรอบ
+  // มุมปัจจุบันของวงล้อ (mod 360) — ป้องกันบั๊กสะสมมุมข้ามรอบ
   const currentMod = ((currentRotation % 360) + 360) % 360;
 
   // หาว่าต้องหมุนเพิ่มอีกกี่องศาถึงจะถึงตำแหน่งเป้าหมาย (หมุนไปข้างหน้าเสมอ)
@@ -521,6 +545,15 @@ loadMenus();
 drawWheel();
 updateMenuList();
 updateHistory();
+
+// วาดวงล้อซ้ำอีกครั้งหลังฟอนต์ Mali โหลดเสร็จ (แก้ปัญหาไม่มีตัวหนังสือบน iOS/มือถือเน็ตช้า)
+if (document.fonts && document.fonts.ready) {
+  document.fonts.load('bold 16px Mali').then(() => {
+    document.fonts.ready.then(drawWheel);
+  }).catch(() => setTimeout(drawWheel, 500));
+} else {
+  setTimeout(drawWheel, 500);
+}
 </script>
 
 </body>
