@@ -229,7 +229,7 @@
 
 <div class="wheel-container">
   <div class="pointer"></div>
-  <canvas id="wheel" width="320" height="320"></canvas>
+  <canvas id="wheel" width="640" height="640"></canvas>
 </div>
 
 <button id="spinBtn" onclick="spinWheel()">🎲 สุ่มเลย!</button>
@@ -257,7 +257,7 @@ function loadMenus() {
   if (saved) {
     menus = JSON.parse(saved);
   } else {
-    menus = ["ข้าวมันไก่", "ส้มตำ", "ก๋วยเตี๋ยว", "ข้าวผัด", "ผัดกะเพรา", "สุกี้"];
+    menus = ["ก๋วยเตี๋ยว", "สเต๊ก", "ซูชิ", "ชาบู", "ปิ้งย่าง", "ข้าวแกง", "ส้มตำ", "ผัดกะเพรา"];
     saveMenus();
   }
 }
@@ -338,60 +338,71 @@ function animateConfetti() {
   }
 }
 
-/* ---------- เสียง (Web Audio API) — ปรับให้ทำงานถูกต้องบน iOS Safari ---------- */
+/* ---------- เสียง (Web Audio API) — แก้ให้ทำงานแน่นอนบน iOS Safari ---------- */
 let audioCtx = null;
 
 function getAudioContext() {
   if (!audioCtx) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   }
-  if (audioCtx.state === "suspended") {
-    audioCtx.resume();
-  }
   return audioCtx;
 }
 
-// ปลดล็อกเสียงตั้งแต่ผู้ใช้แตะหน้าจอ/คลิกครั้งแรก (จำเป็นสำหรับ iOS Safari)
+function ensureAudioRunning() {
+  const ctxA = getAudioContext();
+  if (ctxA.state === "suspended" || ctxA.state === "interrupted") {
+    return ctxA.resume();
+  }
+  return Promise.resolve();
+}
+
 function unlockAudio() {
   const ctxA = getAudioContext();
-  const buffer = ctxA.createBuffer(1, 1, 22050);
-  const source = ctxA.createBufferSource();
-  source.buffer = buffer;
-  source.connect(ctxA.destination);
-  source.start(0);
+  ctxA.resume().then(() => {
+    const buffer = ctxA.createBuffer(1, 1, 22050);
+    const source = ctxA.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctxA.destination);
+    source.start(0);
+  }).catch(() => {});
 }
 document.addEventListener("touchstart", unlockAudio, { once: true });
 document.addEventListener("click", unlockAudio, { once: true });
+document.addEventListener("touchend", unlockAudio, { once: true });
 
 function playTick() {
-  const ctxA = getAudioContext();
-  const osc = ctxA.createOscillator();
-  const gain = ctxA.createGain();
-  osc.type = "square";
-  osc.frequency.value = 800;
-  gain.gain.setValueAtTime(0.15, ctxA.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, ctxA.currentTime + 0.05);
-  osc.connect(gain);
-  gain.connect(ctxA.destination);
-  osc.start();
-  osc.stop(ctxA.currentTime + 0.05);
+  ensureAudioRunning().then(() => {
+    const ctxA = getAudioContext();
+    const osc = ctxA.createOscillator();
+    const gain = ctxA.createGain();
+    osc.type = "square";
+    osc.frequency.value = 800;
+    gain.gain.setValueAtTime(0.15, ctxA.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctxA.currentTime + 0.05);
+    osc.connect(gain);
+    gain.connect(ctxA.destination);
+    osc.start();
+    osc.stop(ctxA.currentTime + 0.05);
+  });
 }
 
 function playWinSound() {
-  const ctxA = getAudioContext();
-  const notes = [523.25, 659.25, 783.99, 1046.5];
-  notes.forEach((freq, i) => {
-    const osc = ctxA.createOscillator();
-    const gain = ctxA.createGain();
-    osc.type = "triangle";
-    osc.frequency.value = freq;
-    const startTime = ctxA.currentTime + i * 0.12;
-    gain.gain.setValueAtTime(0.2, startTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.3);
-    osc.connect(gain);
-    gain.connect(ctxA.destination);
-    osc.start(startTime);
-    osc.stop(startTime + 0.3);
+  ensureAudioRunning().then(() => {
+    const ctxA = getAudioContext();
+    const notes = [523.25, 659.25, 783.99, 1046.5];
+    notes.forEach((freq, i) => {
+      const osc = ctxA.createOscillator();
+      const gain = ctxA.createGain();
+      osc.type = "triangle";
+      osc.frequency.value = freq;
+      const startTime = ctxA.currentTime + i * 0.12;
+      gain.gain.setValueAtTime(0.2, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.3);
+      osc.connect(gain);
+      gain.connect(ctxA.destination);
+      osc.start(startTime);
+      osc.stop(startTime + 0.3);
+    });
   });
 }
 
@@ -422,6 +433,12 @@ function getUnbiasedRandomInt(max) {
   return randomValue % max;
 }
 
+/* ---------- วาดวงล้อ + ข้อความ (แก้บั๊กภาษาไทยเพี้ยนบน iOS/Safari) ---------- */
+function escapeXml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                     .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+}
+
 function drawWheel() {
   const numSlices = menus.length;
   const angle = (2 * Math.PI) / numSlices;
@@ -436,17 +453,35 @@ function drawWheel() {
     ctx.fillStyle = colors[i % colors.length];
     ctx.fill();
     ctx.strokeStyle = "#fff";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3;
     ctx.stroke();
+  }
 
-    ctx.save();
-    ctx.translate(radius, radius);
-    ctx.rotate(i * angle + angle / 2);
-    ctx.textAlign = "right";
-    ctx.font = "bold 16px Mali, sans-serif";
-    ctx.fillStyle = "#2b2b2b";
-    ctx.fillText(menus[i], radius - 15, 5);
-    ctx.restore();
+  drawWheelLabels(numSlices, angle, radius);
+}
+
+function drawWheelLabels(numSlices, angle, radius) {
+  for (let i = 0; i < numSlices; i++) {
+    const midAngleRad = i * angle + angle / 2;
+    const text = escapeXml(menus[i]);
+    const svgW = radius;
+    const svgH = 64;
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}">
+      <text x="${svgW - 30}" y="${svgH / 2 + 11}" text-anchor="end"
+            font-family="Mali, sans-serif" font-weight="700" font-size="30"
+            fill="#2b2b2b">${text}</text>
+    </svg>`;
+
+    const img = new Image();
+    img.onload = function () {
+      ctx.save();
+      ctx.translate(radius, radius);
+      ctx.rotate(midAngleRad);
+      ctx.drawImage(img, 0, -svgH / 2, svgW, svgH);
+      ctx.restore();
+    };
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
   }
 }
 
@@ -494,7 +529,7 @@ function removeMenu(index) {
 }
 
 function spinWheel() {
-  getAudioContext();
+  ensureAudioRunning();
 
   spinBtn.disabled = true;
   const resultEl = document.getElementById("result");
@@ -506,13 +541,9 @@ function spinWheel() {
 
   const randomIndex = getUnbiasedRandomInt(numSlices);
 
-  // มุมเป้าหมายที่ต้องการให้ "ชิ้นนี้" ไปอยู่ตรงลูกศร (mod 360)
   const desiredFinalAngle = ((270 - (randomIndex * sliceAngle + sliceAngle / 2)) % 360 + 360) % 360;
-
-  // มุมปัจจุบันของวงล้อ (mod 360) — ป้องกันบั๊กสะสมมุมข้ามรอบ
   const currentMod = ((currentRotation % 360) + 360) % 360;
 
-  // หาว่าต้องหมุนเพิ่มอีกกี่องศาถึงจะถึงตำแหน่งเป้าหมาย (หมุนไปข้างหน้าเสมอ)
   let delta = desiredFinalAngle - currentMod;
   if (delta <= 0) delta += 360;
 
@@ -541,14 +572,19 @@ document.getElementById("menuInput").addEventListener("keypress", function(e) {
   if (e.key === "Enter") addMenu();
 });
 
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    ensureAudioRunning();
+  }
+});
+
 loadMenus();
 drawWheel();
 updateMenuList();
 updateHistory();
 
-// วาดวงล้อซ้ำอีกครั้งหลังฟอนต์ Mali โหลดเสร็จ (แก้ปัญหาไม่มีตัวหนังสือบน iOS/มือถือเน็ตช้า)
 if (document.fonts && document.fonts.ready) {
-  document.fonts.load('bold 16px Mali').then(() => {
+  document.fonts.load('700 30px Mali').then(() => {
     document.fonts.ready.then(drawWheel);
   }).catch(() => setTimeout(drawWheel, 500));
 } else {
